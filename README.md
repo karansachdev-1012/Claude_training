@@ -11,6 +11,8 @@ A repository for training and customizing [Claude Code](https://docs.anthropic.c
 - Review skill files for quality using a custom subagent
 - Read any webpage via the fetch MCP server
 - Auto-generate `requirements.txt` from Python imports when updating the README
+- Auto-validate skill files on every edit with instant pass/fail feedback
+- Troubleshoot broken skills with a dedicated diagnostic agent
 - Enforce project standards automatically via CLAUDE.md and hooks
 
 ## Project Structure
@@ -25,9 +27,11 @@ Claude_training/
 └── .claude/
     ├── settings.local.json                # Hooks (auto-reminders + requirements.txt generation)
     ├── hooks/
-    │   └── update-requirements.py         # Scans Python imports → generates requirements.txt
+    │   ├── update-requirements.py         # Scans Python imports → generates requirements.txt
+    │   └── validate-skill.py              # Auto-validates SKILL.md files on edit
     ├── agents/
-    │   └── code-reviewer.md               # Custom subagent for reviewing skills
+    │   ├── code-reviewer.md               # Custom subagent for reviewing skills
+    │   └── skills-troubleshooter.md       # Diagnoses skill trigger/load/runtime failures
     └── skills/
         ├── commit/
         │   └── SKILL.md                   # Auto-generates commit messages
@@ -92,18 +96,25 @@ This repo uses all 5 Claude Code customization features. Each one solves a diffe
     }],
     "PostToolUse": [{
       "matcher": "Write|Edit",
-      "hooks": [{
-        "type": "command",
-        "command": "echo '✓ File modified — remember to test your changes'"
-      }]
+      "hooks": [
+        {
+          "type": "command",
+          "command": "echo '✓ File modified — remember to test your changes'"
+        },
+        {
+          "type": "command",
+          "command": "python .claude/hooks/validate-skill.py"
+        }
+      ]
     }]
   }
 }
 ```
 
-Two hooks are active:
+Three hooks are active:
 1. **PreToolUse → Skill**: Before any skill runs, `update-requirements.py` checks if it's the `update-readme` skill. If so, it scans all Python files for imports and generates/updates `requirements.txt` using `pipreqs` (with a manual fallback). This ensures the README always reflects current dependencies.
-2. **PostToolUse → Write|Edit**: Every time Claude writes or edits a file, you get a reminder to test your changes.
+2. **PostToolUse → Write|Edit (echo)**: Every time Claude writes or edits a file, you get a reminder to test your changes.
+3. **PostToolUse → Write|Edit (validate-skill)**: When a `SKILL.md` file is edited, `validate-skill.py` runs instant structural checks — frontmatter, name/description fields, trigger phrases, line count, and path separators. If issues are found, it suggests running the `skills-troubleshooter` agent for a full diagnosis. Silently skips non-skill files.
 
 ### MCP Servers — External Tools
 
@@ -134,12 +145,18 @@ Two hooks are active:
 - **When:** You want to delegate a task to a separate worker with its own tool access and expertise
 - **Flow:** You say "use the code-reviewer agent to review my skills" → agent starts with fresh context → loads its listed skills → does its work → returns results
 
-**Current agent in this repo:**
+**Current agents in this repo:**
 ```yaml
+# code-reviewer — reviews skill quality
 name: code-reviewer
 tools: Read, Glob, Grep          # Read-only — can't edit anything
 model: sonnet                     # Uses faster/cheaper model
 skills: git-onboarding, commit    # Only these 2 skills are loaded
+
+# skills-troubleshooter — diagnoses broken skills
+name: skills-troubleshooter
+tools: Read, Glob, Grep, Bash    # Read + execute for validation
+model: sonnet
 ```
 
 **Important:** Built-in agents (Explorer, Plan) CANNOT access your skills. Only custom agents defined in `.claude/agents/` can, and you must explicitly list which skills they get in the `skills:` field.
@@ -158,6 +175,7 @@ skills: git-onboarding, commit    # Only these 2 skills are loaded
 | Agent Name | What It Does | Tools | Skills Loaded |
 |------------|--------------|-------|---------------|
 | **code-reviewer** | Reviews skill files for quality, completeness, and best practices. Checks frontmatter, trigger phrases, progressive disclosure, and security. | Read, Glob, Grep | git-onboarding, commit |
+| **skills-troubleshooter** | Diagnoses why skills don't trigger, don't load, conflict with each other, or fail at runtime. Validates structure, trigger quality, priority conflicts, and runtime dependencies. | Read, Glob, Grep, Bash | — |
 
 ## Getting Started
 
@@ -190,4 +208,5 @@ Skills and agents are automatically available when working in this repository. I
 3. **Agents** — ask Claude to use a specific agent:
    ```
    "use the code-reviewer agent to review my skills"
+   "use the skills-troubleshooter agent to check why my skill isn't working"
    ```

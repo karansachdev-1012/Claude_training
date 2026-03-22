@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "fetch": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["-m", "uv", "tool", "run", "mcp-server-fetch"]
+    }
+  }
+}

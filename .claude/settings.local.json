@@ -18,6 +18,10 @@
           {
             "type": "command",
             "command": "echo '✓ File modified — remember to test your changes'"
+          },
+          {
+            "type": "command",
+            "command": "python .claude/hooks/validate-skill.py"
           }
         ]
       }
